@@ -89,7 +89,7 @@ You'll see:
 
 ```
 ✓ Authentication complete.
-✓ Logged in as tdoerks
+✓ Logged in as your-github-username
 ```
 
 Verify it works:
@@ -101,14 +101,14 @@ gh auth status
 Should show:
 
 ```
-✓ Logged in to github.com account tdoerks
+✓ Logged in to github.com account your-github-username
 ```
 
 ### Configure Git Identity
 
 ```bash
-git config --global user.name "Tyler Doerksen"
-git config --global user.email "tdoerks@vet.k-state.edu"
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
 ```
 
 Verify:
@@ -137,21 +137,22 @@ This tells claude-sandbox to use the pre-built image instead of building locally
 
 ## Step 5: Navigate to Your Project
 
-For COMPASS-pipeline:
+Navigate to your project directory:
 
 ```bash
-cd ~/Github/COMPASS-pipeline
+cd ~/Github/your-project-name
 ```
 
-For BWGS-Tracking:
+Examples:
 
 ```bash
-cd ~/Github/BWGS-Tracking
-```
+# For a web app project
+cd ~/Github/my-web-app
 
-For testing with claude-code-sandbox itself:
+# For a data science project
+cd ~/Github/ml-pipeline
 
-```bash
+# For testing with claude-code-sandbox itself
 cd ~/Github/claude-code-sandbox
 ```
 
@@ -288,7 +289,7 @@ wsl -d Ubuntu-24.04
 docker pull ghcr.io/tdoerks/claude-code-sandbox:latest
 
 # Navigate to project
-cd ~/Github/COMPASS-pipeline
+cd ~/Github/your-project
 
 # Launch sandbox
 claude-sandbox
@@ -320,14 +321,14 @@ Your projects are in:
 Which maps to:
 
 ```
-/home/tylerdoe/Github/
+/home/username/Github/
 ```
 
-Available projects:
+Example projects:
 
 - `claude-code-sandbox` - The sandbox tool itself
-- `COMPASS-pipeline` - Your genomics pipeline project
-- `BWGS-Tracking` - Your tracking project
+- `my-project` - Your project
+- `another-project` - Another project
 
 ## Multiple Sandboxes at Once
 
@@ -337,7 +338,7 @@ Open multiple PowerShell/Terminal windows:
 
 ```bash
 wsl -d Ubuntu-24.04
-cd ~/Github/COMPASS-pipeline
+cd ~/Github/my-project
 claude-sandbox
 ```
 
@@ -345,7 +346,7 @@ claude-sandbox
 
 ```bash
 wsl -d Ubuntu-24.04
-cd ~/Github/BWGS-Tracking
+cd ~/Github/another-project
 claude-sandbox
 ```
 
@@ -375,7 +376,7 @@ source ~/.bashrc
 ✅ Docker must be running
 ✅ Browser opens automatically
 ✅ GitHub credentials set up (Step 3)
-✅ Run as `tylerdoe` user (not root)
+✅ Run as your normal user (not root)
 ✅ Each project = separate sandbox
 ✅ **Pre-built images auto-update nightly** 🆕
 
