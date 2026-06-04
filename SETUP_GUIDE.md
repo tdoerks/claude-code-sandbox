@@ -12,9 +12,9 @@ wsl -d Ubuntu-24.04
 
 Or from Start Menu: Search "Ubuntu" and click it.
 
-## Step 2: Pull the Pre-Built Docker Image (Recommended)
+## Step 2: Pull the Pre-Built Docker Image
 
-**NEW: No need to build locally!** We maintain auto-updated Docker images:
+**NEW: No need to build or install anything!** We maintain auto-updated Docker images:
 
 ```bash
 docker pull ghcr.io/tdoerks/claude-code-sandbox:latest
@@ -23,20 +23,24 @@ docker pull ghcr.io/tdoerks/claude-code-sandbox:latest
 This image:
 - ✅ Auto-updates nightly with latest Claude Code
 - ✅ Includes all dependencies pre-installed
-- ✅ No build time required
+- ✅ No npm install/build required
 - ✅ Always stays current
 
-### Alternative: Install from Source (Optional)
+**That's it!** You don't need to install the npm package or run `npm link`. The Docker image has everything.
 
-Only needed if you want to modify the code:
+### Advanced: Install from Source (Optional)
+
+**Only for developers** who want to modify the claude-sandbox tool itself:
 
 ```bash
 cd ~/Github/claude-code-sandbox
 git pull origin main
 npm install
 npm run build
-sudo npm link
+sudo npm link  # Makes 'claude-sandbox' command available globally
 ```
+
+**For normal use, skip this section** - the Docker image is all you need!
 
 ## Step 3: Set Up GitHub Credentials (One-Time Setup)
 
@@ -164,9 +168,35 @@ git clone https://github.com/username/repo-name.git
 cd repo-name
 ```
 
-## Step 6: Launch Claude Sandbox!
+## Step 6: Get the Auto-Update Launch Script
+
+Download the launch script that automatically pulls the latest Docker image:
 
 ```bash
+cd ~/Github
+git clone https://github.com/tdoerks/claude-code-sandbox.git
+```
+
+## Step 7: Launch Claude Sandbox!
+
+**Option 1: Use the Auto-Update Launch Script (Recommended)**
+
+```bash
+cd ~/Github/your-project
+~/Github/claude-code-sandbox/launch-claude-sandbox.sh
+```
+
+This script automatically:
+- Pulls the latest Docker image
+- Shows the Claude Code version
+- Launches the sandbox
+
+**Option 2: Direct Launch**
+
+If you installed from source (Step 2 Advanced):
+
+```bash
+cd ~/Github/your-project
 claude-sandbox
 ```
 
@@ -230,10 +260,21 @@ View build status: https://github.com/tdoerks/claude-code-sandbox/actions
 
 ### Issue: "claude-sandbox: command not found"
 
-**Fix:**
+**Fix:** Use the launch script instead:
+
+```bash
+# Use the launch script (no installation needed)
+cd ~/Github/your-project
+~/Github/claude-code-sandbox/launch-claude-sandbox.sh
+```
+
+**Advanced:** If you want the `claude-sandbox` command globally available:
 
 ```bash
 cd ~/Github/claude-code-sandbox
+git pull origin main
+npm install
+npm run build
 sudo npm link
 ```
 
@@ -382,14 +423,16 @@ source ~/.bashrc
 
 ## Setup Complete! 🎉
 
-Quick launch:
+Quick launch (recommended):
 
 ```bash
-cd ~/Github/claude-code-sandbox
-claude-sandbox
+cd ~/Github/your-project
+~/Github/claude-code-sandbox/launch-claude-sandbox.sh
 ```
 
 Browser opens → Start chatting with Claude → It codes for you → Push to GitHub! 🚀
+
+The launch script auto-updates the Docker image every time you run it!
 
 ---
 
