@@ -30,7 +30,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh
 
 # Install Claude Code
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Create workspace directory
 RUN mkdir -p /workspace
