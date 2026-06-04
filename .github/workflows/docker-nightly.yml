@@ -1,9 +1,16 @@
-name: Build and Publish Docker Image (nightly)
+name: Build and Publish Docker Image
 
 on:
   schedule:
     # Run every night at 2 AM UTC
     - cron: '0 2 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-nightly.yml'
 
 env:
   REGISTRY: ghcr.io
@@ -30,6 +37,15 @@ jobs:
       - name: Check if rebuild needed
         id: check-rebuild
         run: |
+          # Push and workflow_dispatch always rebuild unconditionally
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "rebuild=true" >> $GITHUB_OUTPUT
+            echo "current=unknown" >> $GITHUB_OUTPUT
+            echo "Non-schedule event — rebuilding unconditionally"
+            exit 0
+          fi
+
+          # Nightly schedule: skip if Claude Code version hasn't changed
           CURRENT_VERSION=$(docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "none")
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current version in image: $CURRENT_VERSION"
@@ -85,6 +101,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Claude Code Version:** ${{ steps.claude-version.outputs.latest }}" >> $GITHUB_STEP_SUMMARY
           echo "**Previous Version:** ${{ steps.check-rebuild.outputs.current }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tags" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
