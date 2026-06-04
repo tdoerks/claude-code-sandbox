@@ -76,7 +76,6 @@ docker run --rm --platform linux/amd64 \
 
 # ── FIX 3: Strip macOS extended attributes ─────────────────────
 # com.apple.provenance xattrs cause `docker cp` to fail (lsetxattr 500 error).
-#
 # Why the naive `xattr -rc .` fails:
 #   Git stores object files (.git/objects/**) as read-only (mode 444).
 #   macOS requires WRITE permission on a file to modify its xattrs,
