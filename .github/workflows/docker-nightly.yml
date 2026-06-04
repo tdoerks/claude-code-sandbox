@@ -1,0 +1,116 @@
+name: Build and Publish Docker Image
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches:
+      - main
+    paths:
+      - 'docker/**'
+      - '.github/workflows/docker-nightly.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check latest Claude Code version
+        id: claude-version
+        run: |
+          LATEST_VERSION=$(npm view @anthropic-ai/claude-code version)
+          echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
+          echo "Latest Claude Code version: $LATEST_VERSION"
+
+      - name: Check if rebuild needed
+        id: check-rebuild
+        run: |
+          # Get the current version from our image (if it exists)
+          CURRENT_VERSION=$(docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest claude-code --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo "none")
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version in image: $CURRENT_VERSION"
+
+          LATEST_VERSION="${{ steps.claude-version.outputs.latest }}"
+
+          if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "rebuild=true" >> $GITHUB_OUTPUT
+            echo "New version available! Rebuilding..."
+          else
+            echo "rebuild=false" >> $GITHUB_OUTPUT
+            echo "Already up to date"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.check-rebuild.outputs.rebuild == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: steps.check-rebuild.outputs.rebuild == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: steps.check-rebuild.outputs.rebuild == 'true' || github.event_name == 'workflow_dispatch'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ steps.claude-version.outputs.latest }}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        if: steps.check-rebuild.outputs.rebuild == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            CLAUDE_CODE_VERSION=${{ steps.claude-version.outputs.latest }}
+          no-cache: true  # Force fresh install of Claude Code
+
+      - name: Create release summary
+        if: steps.check-rebuild.outputs.rebuild == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Claude Code Version:** ${{ steps.claude-version.outputs.latest }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Previous Version:** ${{ steps.check-rebuild.outputs.current }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tags" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: No rebuild needed
+        if: steps.check-rebuild.outputs.rebuild == 'false' && github.event_name != 'workflow_dispatch'
+        run: |
+          echo "## No Rebuild Needed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Claude Code version ${{ steps.claude-version.outputs.latest }} is already built and published." >> $GITHUB_STEP_SUMMARY
