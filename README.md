@@ -1,8 +1,12 @@
 # Claude Code Sandbox
 
+> [!NOTE]
+>
+> **Auto-Updated Fork**: This fork automatically rebuilds nightly with the latest Claude Code version. Pre-built Docker images are available at `ghcr.io/tdoerks/claude-code-sandbox:latest` - no need to build locally!
+
 > [!WARNING]
 >
-> This was an early PoC and is now archived. Follow [Spritz](https://github.com/textcortex/spritz) for the continuation of this vision
+> Original repository archived. This fork maintains auto-updated Docker images with latest Claude Code releases.
 
 Run Claude Code as an autonomous agent inside Docker containers with automatic GitHub integration. Bypass all permissions safely.
 
@@ -33,6 +37,18 @@ Claude Code Sandbox allows you to run Claude Code in isolated Docker containers,
 
 ## Installation
 
+### Option 1: Use Pre-Built Docker Images (Recommended)
+
+Pull the auto-updated Docker image (includes Claude Code and all dependencies):
+
+```bash
+docker pull ghcr.io/tdoerks/claude-code-sandbox:latest
+```
+
+The image is automatically rebuilt nightly with the latest Claude Code version. No local build required!
+
+### Option 2: Install from npm
+
 Install Claude Code Sandbox globally from npm:
 
 ```bash
@@ -44,7 +60,7 @@ npm install -g @textcortex/claude-code-sandbox
 - Node.js >= 18.0.0
 - Docker or Podman
 - Git
-- Claude Code (`npm install -g @anthropic-ai/claude-code@latest`)
+- Claude Code (`npm install -g @anthropic-ai/claude-code@latest`) - **Not needed if using pre-built Docker image**
 
 ## Usage
 
@@ -335,6 +351,25 @@ claude-sandbox attach
 
 ## Docker Environment
 
+### Pre-Built Auto-Updated Images
+
+Pre-built Docker images are available with automatic updates:
+
+```bash
+# Pull the latest version (recommended)
+docker pull ghcr.io/tdoerks/claude-code-sandbox:latest
+
+# Pull a specific Claude Code version
+docker pull ghcr.io/tdoerks/claude-code-sandbox:1.2.3
+```
+
+**Automated Updates:**
+- Rebuilds nightly at 2 AM UTC
+- Checks for new Claude Code releases from npm
+- Only rebuilds when a new version is available
+- Tagged with both `latest` and specific version numbers
+- View builds at: https://github.com/tdoerks/claude-code-sandbox/actions
+
 ### Default Image
 
 The default Docker image includes:
@@ -343,7 +378,7 @@ The default Docker image includes:
 - Git, GitHub CLI
 - Node.js, npm
 - Python 3
-- Claude Code (latest)
+- Claude Code (latest version, auto-updated)
 - Build essentials
 
 ### Custom Dockerfile
