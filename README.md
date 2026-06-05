@@ -46,6 +46,8 @@ npm install -g @textcortex/claude-code-sandbox
 - Git
 - Claude Code (`npm install -g @anthropic-ai/claude-code@latest`)
 
+> **Windows Users:** We recommend using WSL (Windows Subsystem for Linux) for the best experience. See our [WSL Setup Guide](./docs/wsl-setup-guide.md) for detailed instructions.
+
 ## Usage
 
 ### Quick Start
