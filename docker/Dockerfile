@@ -1,6 +1,5 @@
 FROM ubuntu:22.04
 
-# Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies
@@ -29,24 +28,27 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get update \
     && apt-get install -y gh
 
-# Install Claude Code
-RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH="/root/.local/bin:$PATH"
+# Create a non-root user with sudo privileges
+RUN useradd -m -s /bin/bash claude && \
+    echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
+    usermod -aG sudo claude
 
-# Create workspace directory
-RUN mkdir -p /workspace
-WORKDIR /workspace
+# Install Claude Code as the claude user so it lands in /home/claude/.local/bin
+RUN su -c 'curl -fsSL https://claude.ai/install.sh | bash' claude
+ENV PATH="/home/claude/.local/bin:$PATH"
+
+# Create workspace directory and set ownership
+RUN mkdir -p /workspace && \
+    chown -R claude:claude /workspace
 
 # Create a wrapper script for git that prevents branch switching
 RUN echo '#!/bin/bash\n\
-# Allow the initial branch creation\n\
 if [ ! -f /tmp/.branch-created ]; then\n\
     /usr/bin/git.real "$@"\n\
     if [[ "$1" == "checkout" ]] && [[ "$2" == "-b" ]]; then\n\
         touch /tmp/.branch-created\n\
     fi\n\
 else\n\
-    # After initial branch creation, prevent switching\n\
     if [[ "$1" == "checkout" ]] && [[ "$2" != "-b" ]] && [[ "$*" != *"--"* ]]; then\n\
         echo "Error: Branch switching is disabled in claude-code-sandbox"\n\
         echo "You can only create new branches with git checkout -b"\n\
@@ -62,12 +64,14 @@ fi' > /usr/local/bin/git-wrapper && \
     mv /usr/bin/git /usr/bin/git.real && \
     ln -s /usr/local/bin/git-wrapper /usr/bin/git
 
-# Set up SSH config
-RUN mkdir -p /root/.ssh && \
+# Set up SSH config for claude user
+RUN mkdir -p /home/claude/.ssh && \
     echo "Host github.com\n\
     StrictHostKeyChecking no\n\
-    UserKnownHostsFile /dev/null" > /root/.ssh/config && \
-    chmod 600 /root/.ssh/config
+    UserKnownHostsFile /dev/null" > /home/claude/.ssh/config && \
+    chmod 700 /home/claude/.ssh && \
+    chmod 600 /home/claude/.ssh/config && \
+    chown -R claude:claude /home/claude/.ssh
 
 # Set git to use credential helper
 RUN git config --global credential.helper 'cache --timeout=3600'
@@ -76,20 +80,21 @@ RUN git config --global credential.helper 'cache --timeout=3600'
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
-# Copy SSH keys if mounted\n\
 if [ -d "/tmp/.ssh" ]; then\n\
-    cp -r /tmp/.ssh/* /root/.ssh/ 2>/dev/null || true\n\
-    chmod 600 /root/.ssh/* 2>/dev/null || true\n\
+    cp -r /tmp/.ssh/* /home/claude/.ssh/ 2>/dev/null || true\n\
+    chmod 600 /home/claude/.ssh/* 2>/dev/null || true\n\
 fi\n\
 \n\
-# Copy git config if mounted\n\
 if [ -f "/tmp/.gitconfig" ]; then\n\
-    cp /tmp/.gitconfig /root/.gitconfig\n\
+    cp /tmp/.gitconfig /home/claude/.gitconfig\n\
+    chown claude:claude /home/claude/.gitconfig\n\
 fi\n\
 \n\
-# Execute the command\n\
 exec "$@"' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
+
+USER claude
+WORKDIR /workspace
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]

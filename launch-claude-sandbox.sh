@@ -41,6 +41,8 @@ echo ""
 if docker pull ghcr.io/tdoerks/claude-code-sandbox:latest; then
     echo ""
     echo "✅ Docker image up to date!"
+    # Re-tag so claude-sandbox finds it under its expected local name
+    docker tag ghcr.io/tdoerks/claude-code-sandbox:latest claude-code-sandbox:latest
 else
     echo ""
     echo "⚠️  Failed to pull latest image, using cached version"
@@ -49,7 +51,7 @@ fi
 # Check Claude Code version in the image
 echo ""
 echo "ℹ️  Claude Code version in Docker image:"
-docker run --rm ghcr.io/tdoerks/claude-code-sandbox:latest claude-code --version 2>/dev/null || echo "   (version check skipped)"
+docker run --rm ghcr.io/tdoerks/claude-code-sandbox:latest claude --version 2>/dev/null || echo "   (version check skipped)"
 
 echo ""
 echo "════════════════════════════════════════════════════════════"

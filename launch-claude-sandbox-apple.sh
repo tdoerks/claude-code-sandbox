@@ -62,6 +62,8 @@ echo ""
 if docker pull --platform linux/amd64 ghcr.io/tdoerks/claude-code-sandbox:latest; then
     echo ""
     echo "✅ Docker image up to date!"
+    # Re-tag so claude-sandbox finds it under its expected local name
+    docker tag ghcr.io/tdoerks/claude-code-sandbox:latest claude-code-sandbox:latest
 else
     echo ""
     echo "⚠️  Failed to pull latest image, using cached version"
@@ -72,7 +74,7 @@ echo "ℹ️  Claude Code version in Docker image:"
 # Also pass --platform here so the version-check container matches
 docker run --rm --platform linux/amd64 \
     ghcr.io/tdoerks/claude-code-sandbox:latest \
-    claude-code --version 2>/dev/null || echo "   (version check skipped)"
+    claude --version 2>/dev/null || echo "   (version check skipped)"
 
 # ── FIX 3: Strip macOS extended attributes ─────────────────────
 # com.apple.provenance xattrs cause `docker cp` to fail (lsetxattr 500 error).
