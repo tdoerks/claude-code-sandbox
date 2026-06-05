@@ -70,6 +70,47 @@ async function selectContainer(containers: any[]): Promise<string | null> {
   return containerId;
 }
 
+// Collector for repeatable options (e.g. --allow-domain)
+function collect(value: string, previous: string[]): string[] {
+  return previous.concat([value]);
+}
+
+// If a target directory was provided, change into it BEFORE loading config
+// (config + git operations are all resolved relative to process.cwd()).
+function applyDirectory(options: any): void {
+  if (options.directory) {
+    const path = require("path");
+    const os = require("os");
+    let dir = options.directory as string;
+    if (dir.startsWith("~")) {
+      dir = path.join(os.homedir(), dir.slice(1));
+    }
+    const resolved = path.resolve(dir);
+    try {
+      process.chdir(resolved);
+      console.log(chalk.blue(`📁 Using directory: ${resolved}`));
+    } catch (error: any) {
+      console.error(
+        chalk.red(`Failed to change to directory ${resolved}: ${error.message}`),
+      );
+      process.exit(1);
+    }
+  }
+}
+
+// Apply skills / network options shared by the default and start commands.
+function applySandboxOptions(config: any, options: any): void {
+  if (options.skills) {
+    config.skillsPath = options.skills;
+  }
+  if (options.network) {
+    config.networkMode = options.network.toLowerCase();
+  }
+  if (options.allowDomain && options.allowDomain.length > 0) {
+    config.allowedDomains = options.allowDomain;
+  }
+}
+
 program
   .name("claude-sandbox")
   .description("Run Claude Code in isolated Docker containers")
@@ -82,14 +123,36 @@ program
     "Start with 'claude' or 'bash' shell",
     /^(claude|bash)$/i,
   )
+  .option(
+    "-d, --directory <path>",
+    "Project directory to launch from (defaults to current directory)",
+  )
+  .option(
+    "--skills <path>",
+    "Directory of skill .zip files (or unzipped skill folders) to inject into the container",
+  )
+  .option(
+    "--network <mode>",
+    "Container network mode: bridge | allowlist | none",
+    /^(bridge|allowlist|none)$/i,
+  )
+  .option(
+    "--allow-domain <domain>",
+    "Extra domain to permit in allowlist mode (repeatable)",
+    collect,
+    [],
+  )
   .action(async (options) => {
     console.log(chalk.blue("🚀 Starting Claude Sandbox..."));
+
+    applyDirectory(options);
 
     const config = await loadConfig("./claude-sandbox.config.json");
     config.includeUntracked = false;
     if (options.shell) {
       config.defaultShell = options.shell.toLowerCase();
     }
+    applySandboxOptions(config, options);
 
     const sandbox = new ClaudeSandbox(config);
     await sandbox.run();
@@ -125,8 +188,29 @@ program
     "Start with 'claude' or 'bash' shell",
     /^(claude|bash)$/i,
   )
+  .option(
+    "-d, --directory <path>",
+    "Project directory to launch from (defaults to current directory)",
+  )
+  .option(
+    "--skills <path>",
+    "Directory of skill .zip files (or unzipped skill folders) to inject into the container",
+  )
+  .option(
+    "--network <mode>",
+    "Container network mode: bridge | allowlist | none",
+    /^(bridge|allowlist|none)$/i,
+  )
+  .option(
+    "--allow-domain <domain>",
+    "Extra domain to permit in allowlist mode (repeatable)",
+    collect,
+    [],
+  )
   .action(async (options) => {
     console.log(chalk.blue("🚀 Starting new Claude Sandbox container..."));
+
+    applyDirectory(options);
 
     const config = await loadConfig(options.config);
     config.containerPrefix = options.name || config.containerPrefix;
@@ -139,6 +223,7 @@ program
     if (options.shell) {
       config.defaultShell = options.shell.toLowerCase();
     }
+    applySandboxOptions(config, options);
 
     const sandbox = new ClaudeSandbox(config);
     await sandbox.run();

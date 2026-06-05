@@ -26,6 +26,15 @@ export interface SandboxConfig {
   remoteBranch?: string;
   prNumber?: string;
   dockerSocketPath?: string;
+  // Path to a directory containing skill .zip files (or unzipped skill folders)
+  // to inject into the container at launch (into /home/claude/.claude/skills).
+  skillsPath?: string;
+  // Container network mode. "bridge" = full internet (default),
+  // "allowlist" = egress restricted to Anthropic API + GitHub (+allowedDomains),
+  // "none" = no network (Claude inference will not work).
+  networkMode?: "bridge" | "allowlist" | "none";
+  // Extra domains to permit when networkMode is "allowlist".
+  allowedDomains?: string[];
 }
 
 export interface Credentials {

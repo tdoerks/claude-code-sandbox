@@ -182,14 +182,19 @@ git clone https://github.com/tdoerks/claude-code-sandbox.git
 **Option 1: Use the Auto-Update Launch Script (Recommended)**
 
 ```bash
-cd ~/Github/your-project
+# You can run the launcher from anywhere — it will ASK which directory to use
 ~/Github/claude-code-sandbox/launch-claude-sandbox.sh
 ```
 
-This script automatically:
-- Pulls the latest Docker image
-- Shows the Claude Code version
-- Launches the sandbox
+The launcher now interactively prompts for:
+- **Project directory** — which repo to launch from (defaults to the current
+  directory; you no longer have to `cd` first). You can also pass it as the first
+  argument: `launch-claude-sandbox.sh ~/Github/my-project`.
+- **Skills** — an optional folder of skill `.zip` files to inject (see below).
+- **Network access** — full internet (default) or a restricted allowlist (see below).
+
+It also automatically pulls the latest Docker image, re-tags it for local use, and
+shows the Claude Code version.
 
 **Option 2: Direct Launch**
 
@@ -198,9 +203,77 @@ If you installed from source (Step 2 Advanced):
 ```bash
 cd ~/Github/your-project
 claude-sandbox
+
+# ...or specify everything via flags (no prompts):
+claude-sandbox -d ~/Github/your-project --skills ~/my-skills --network allowlist
 ```
 
 Browser should auto-open with the Claude interface connected to your project!
+
+## Choosing a Project Directory
+
+You no longer need to `cd` into your repo before launching. The launch scripts prompt
+for a directory (default = current), and the CLI accepts `-d, --directory <path>`.
+The chosen directory must be a git repository.
+
+## Adding Skills
+
+You can give Claude extra [Agent Skills](https://code.claude.com/docs/en/skills) at
+launch time. Skills are distributed as `.zip` files (each zip is a skill folder
+containing a `SKILL.md`).
+
+- Put your skill `.zip` files in a folder, e.g. `~/my-skills/`.
+- When the launcher asks **"Path to a folder of skill .zip files"**, give it that folder.
+- Or pass it directly: `claude-sandbox --skills ~/my-skills`.
+
+**Important:** Injected skills are copied **into the container only**
+(`/home/claude/.claude/skills/`). They are **never** written into your project repo, so
+they will not show up as git changes. They exist only for that container session.
+
+Claude Code auto-discovers skills from `~/.claude/skills/`, so injected skills are
+available immediately in the session.
+
+## Windows (PowerShell + Docker Desktop)
+
+A native Windows launcher is provided for use with Docker Desktop (no WSL required):
+
+```powershell
+# Requires Docker Desktop running and `claude-sandbox` installed on the Windows host
+pwsh .\launch-claude-sandbox.ps1
+```
+
+It prompts for the same things as the bash launcher (directory, skills, network) and
+pulls/re-tags the latest image. You can also pass the project directory as the first
+argument: `pwsh .\launch-claude-sandbox.ps1 C:\Users\you\Github\my-project`.
+
+> Prefer WSL? The bash launcher (`launch-claude-sandbox.sh`) still works inside
+> Ubuntu/WSL exactly as documented above.
+
+## Restricting Network Access
+
+By default the container has full internet access. You can lock it down:
+
+| Mode        | Flag                   | Behavior |
+|-------------|------------------------|----------|
+| Full (default) | `--network bridge`  | Full internet access. |
+| Allowlist   | `--network allowlist`  | **Only** the Anthropic API and GitHub are reachable. Claude still works; the sandbox cannot reach the rest of the internet. |
+| None        | `--network none`       | No network at all. **Claude inference will NOT work** — only useful for running/inspecting code fully offline. |
+
+The launch scripts offer **Full** vs **Allowlist** interactively.
+
+**How allowlist works:** the container runs an egress firewall (iptables + ipset) that
+permits only the Anthropic API (`api.anthropic.com`, `claude.ai`, …) and GitHub (its
+published IP ranges) plus DNS. Add more allowed domains with repeatable
+`--allow-domain`:
+
+```bash
+claude-sandbox --network allowlist --allow-domain registry.npmjs.org --allow-domain pypi.org
+```
+
+This requires the container to have the `NET_ADMIN` capability, which claude-sandbox
+adds automatically in allowlist mode (works out of the box on Docker Desktop). You do
+**not** need to log into Claude inside the container — credentials are injected from your
+host, and the allowlist keeps the Anthropic API reachable so inference works.
 
 ## What Claude Sandbox Does
 
@@ -453,3 +526,17 @@ The launch script auto-updates the Docker image every time you run it!
 - Images tagged with both `latest` and specific versions
 - Pin to specific Claude Code versions if needed
 - View all versions at: https://github.com/tdoerks/claude-code-sandbox/packages
+
+🆕 **Launcher Prompts for the Project Directory**
+- Run the launcher from anywhere; it asks which repo to use (`-d/--directory`)
+
+🆕 **Skill Injection**
+- Inject Claude skills (`.zip`) at launch via `--skills` or the launcher prompt
+- Copied into the container only — never added to your repo
+
+🆕 **Native Windows Launcher**
+- `launch-claude-sandbox.ps1` for PowerShell + Docker Desktop (no WSL needed)
+
+🆕 **Network Allowlist**
+- `--network allowlist` restricts the sandbox to the Anthropic API + GitHub
+- `--network none` for fully offline runs (Claude inference disabled)

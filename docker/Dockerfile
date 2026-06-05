@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     jq \
     ca-certificates \
     gnupg \
+    iptables \
+    ipset \
+    dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x
@@ -40,6 +43,10 @@ ENV PATH="/home/claude/.local/bin:$PATH"
 # Create workspace directory and set ownership
 RUN mkdir -p /workspace && \
     chown -R claude:claude /workspace
+
+# Install the egress allowlist firewall script (used in --network allowlist mode)
+COPY docker/init-firewall.sh /usr/local/bin/init-firewall.sh
+RUN chmod 755 /usr/local/bin/init-firewall.sh
 
 # Create a wrapper script for git that prevents branch switching
 RUN echo '#!/bin/bash\n\

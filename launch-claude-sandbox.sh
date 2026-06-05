@@ -11,11 +11,31 @@ echo "🤖 Claude Sandbox Launcher"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
+# ── Directory selection ────────────────────────────────────────
+# Ask which project directory to launch from (default: current dir).
+# If a directory is passed as the first argument, use it without prompting.
+TARGET_DIR=""
+if [ -n "$1" ] && [ -d "$1" ]; then
+    TARGET_DIR="$1"
+    shift
+else
+    read -e -r -p "📂 Project directory to launch from [$(pwd)]: " TARGET_DIR
+    TARGET_DIR="${TARGET_DIR:-$(pwd)}"
+fi
+# Expand a leading ~ to $HOME
+TARGET_DIR="${TARGET_DIR/#\~/$HOME}"
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "❌ Error: Directory does not exist: $TARGET_DIR"
+    exit 1
+fi
+cd "$TARGET_DIR"
+echo "   Using: $(pwd)"
+echo ""
+
 # Check if we're in a git repository
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
     echo "❌ Error: Not in a git repository"
-    echo "   Please navigate to your project directory first:"
-    echo "   cd ~/Github/your-project"
+    echo "   Please choose a directory that is a git repository."
     exit 1
 fi
 
@@ -54,6 +74,36 @@ echo "ℹ️  Claude Code version in Docker image:"
 docker run --rm ghcr.io/tdoerks/claude-code-sandbox:latest claude --version 2>/dev/null || echo "   (version check skipped)"
 
 echo ""
+
+# ── Skills (optional) ──────────────────────────────────────────
+# Inject Claude skills (distributed as .zip) into the container at launch.
+# These go into the container only and are never added to your repo.
+EXTRA_ARGS=()
+read -e -r -p "🧩 Path to a folder of skill .zip files (blank to skip): " SKILLS_DIR
+SKILLS_DIR="${SKILLS_DIR/#\~/$HOME}"
+if [ -n "$SKILLS_DIR" ]; then
+    if [ -d "$SKILLS_DIR" ]; then
+        EXTRA_ARGS+=(--skills "$SKILLS_DIR")
+        echo "   Skills will be injected from: $SKILLS_DIR"
+    else
+        echo "   ⚠️  Skills path not found, skipping: $SKILLS_DIR"
+    fi
+fi
+echo ""
+
+# ── Network restriction (optional) ─────────────────────────────
+echo "🌐 Network access:"
+echo "   1) Full internet (default)"
+echo "   2) Allowlist only (Anthropic API + GitHub) — sandboxed"
+read -r -p "   Choose [1/2]: " NET_CHOICE
+if [ "$NET_CHOICE" = "2" ]; then
+    EXTRA_ARGS+=(--network allowlist)
+    echo "   Network: allowlist (Anthropic + GitHub only)"
+else
+    echo "   Network: full internet"
+fi
+echo ""
+
 echo "════════════════════════════════════════════════════════════"
 echo "🚀 Launching Claude Sandbox..."
 echo "════════════════════════════════════════════════════════════"
@@ -63,4 +113,4 @@ echo "   Press Ctrl+C to exit"
 echo ""
 
 # Launch claude-sandbox
-claude-sandbox "$@"
+claude-sandbox "${EXTRA_ARGS[@]}" "$@"

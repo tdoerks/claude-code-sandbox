@@ -34,6 +34,9 @@ export class ContainerManager {
       // Copy Claude configuration if it exists
       await this._copyClaudeConfig(container);
 
+      // Inject any skills provided at launch (never written to the workspace repo)
+      await this._copySkills(container);
+
       // Copy git configuration if it exists
       await this._copyGitConfig(container);
     } catch (error) {
@@ -48,6 +51,9 @@ export class ContainerManager {
     // Give the container a moment to initialize
     await new Promise((resolve) => setTimeout(resolve, 500));
     console.log(chalk.green("✓ Container ready"));
+
+    // Apply the egress firewall before any in-container network use (git, Claude)
+    await this._setupFirewall(container);
 
     // Set up git branch and startup script
     await this.setupGitAndStartupScript(
@@ -85,6 +91,32 @@ export class ContainerManager {
   }
 
   private async buildDefaultImage(imageName: string): Promise<void> {
+    // Try to locate the egress firewall script so allowlist mode works even on
+    // locally-built images. If found, it's copied into the image; otherwise the
+    // build proceeds without it (allowlist mode then degrades with a warning).
+    const fsMod = require("fs");
+    let firewallScript: string | null = null;
+    for (const candidate of [
+      path.join(__dirname, "..", "docker", "init-firewall.sh"),
+      path.join(process.cwd(), "docker", "init-firewall.sh"),
+    ]) {
+      try {
+        if (fsMod.existsSync(candidate)) {
+          firewallScript = fsMod.readFileSync(candidate, "utf-8");
+          break;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const firewallDockerfileSnippet = firewallScript
+      ? `
+# Install the egress allowlist firewall script (used in --network allowlist mode)
+COPY init-firewall.sh /usr/local/bin/init-firewall.sh
+RUN chmod 755 /usr/local/bin/init-firewall.sh
+`
+      : "";
+
     const dockerfile = `
 FROM ubuntu:22.04
 
@@ -98,8 +130,12 @@ RUN apt-get update && apt-get install -y \\
     build-essential \\
     sudo \\
     vim \\
+    jq \\
     ca-certificates \\
     gnupg \\
+    iptables \\
+    ipset \\
+    dnsutils \\
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x
@@ -123,7 +159,7 @@ RUN useradd -m -s /bin/bash claude && \\
 # Create workspace directory and set ownership
 RUN mkdir -p /workspace && \\
     chown -R claude:claude /workspace
-
+${firewallDockerfileSnippet}
 # Switch to non-root user
 USER claude
 WORKDIR /workspace
@@ -165,10 +201,21 @@ exec claude --dangerously-skip-permissions' > /start-claude.sh && \\
     const tarStream = require("tar-stream");
     const pack = tarStream.pack();
 
-    // Add Dockerfile to tar
+    // Add Dockerfile to tar (and the firewall script if available)
     pack.entry({ name: "Dockerfile" }, dockerfile, (err: any) => {
       if (err) throw err;
-      pack.finalize();
+      if (firewallScript) {
+        pack.entry(
+          { name: "init-firewall.sh", mode: 0o755 },
+          firewallScript,
+          (err2: any) => {
+            if (err2) throw err2;
+            pack.finalize();
+          },
+        );
+      } else {
+        pack.finalize();
+      }
     });
 
     // Convert to buffer for docker
@@ -245,6 +292,29 @@ exec claude --dangerously-skip-permissions' > /start-claude.sh && \\
     // Prepare volumes
     const volumes = this.prepareVolumes(workDir, credentials);
 
+    // Resolve network mode (default: full internet via bridge)
+    const networkMode = this.config.networkMode || "bridge";
+    const hostConfig: any = {
+      Binds: volumes,
+      AutoRemove: false,
+      // "none" cuts all network; "allowlist" stays on bridge but is locked
+      // down at runtime by the in-container firewall (needs NET_ADMIN).
+      NetworkMode: networkMode === "none" ? "none" : "bridge",
+    };
+    if (networkMode === "allowlist") {
+      // Capabilities required for iptables/ipset inside the container
+      hostConfig.CapAdd = ["NET_ADMIN", "NET_RAW"];
+      console.log(
+        chalk.blue("• Network: allowlist mode (Anthropic API + GitHub only)"),
+      );
+    } else if (networkMode === "none") {
+      console.log(
+        chalk.yellow(
+          "• Network: disabled (none) — Claude inference will NOT work",
+        ),
+      );
+    }
+
     // Create container
     const container = await this.docker.createContainer({
       Image: this.config.dockerImage || "claude-code-sandbox:latest",
@@ -252,11 +322,7 @@ exec claude --dangerously-skip-permissions' > /start-claude.sh && \\
         this.config.containerPrefix || "claude-code-sandbox"
       }-${Date.now()}`,
       Env: env,
-      HostConfig: {
-        Binds: volumes,
-        AutoRemove: false,
-        NetworkMode: "bridge",
-      },
+      HostConfig: hostConfig,
       WorkingDir: "/workspace",
       Cmd: ["/bin/bash", "-l"],
       AttachStdin: true,
@@ -826,6 +892,267 @@ exec claude --dangerously-skip-permissions' > /start-claude.sh && \\
         error,
       );
       // Don't throw - this is not critical for container operation
+    }
+  }
+
+  // Inject skills supplied at launch into the container's personal skills dir
+  // (/home/claude/.claude/skills/<name>). Skills are NEVER written to /workspace,
+  // so they never appear as changes in the user's repo. The source is a directory
+  // of skill .zip files and/or already-unzipped skill folders.
+  private async _copySkills(container: Docker.Container): Promise<void> {
+    const fs = require("fs");
+    const os = require("os");
+    const path = require("path");
+    const { execSync } = require("child_process");
+
+    const skillsPath = this.config.skillsPath;
+    if (!skillsPath) {
+      return; // No skills requested
+    }
+
+    try {
+      const resolvedPath = path.isAbsolute(skillsPath)
+        ? skillsPath
+        : path.resolve(process.cwd(), skillsPath);
+
+      if (!fs.existsSync(resolvedPath)) {
+        console.log(
+          chalk.yellow(`⚠ Skills path does not exist: ${resolvedPath}`),
+        );
+        return;
+      }
+
+      console.log(chalk.blue(`• Preparing skills from: ${resolvedPath}`));
+
+      // Build a staging directory laid out as .claude/skills/<name>/...
+      const staging = fs.mkdtempSync(
+        path.join(os.tmpdir(), "claude-skills-stage-"),
+      );
+      const skillsRoot = path.join(staging, ".claude", "skills");
+      fs.mkdirSync(skillsRoot, { recursive: true });
+
+      // Collect candidate sources: zip files and/or directories
+      let entries: string[] = [];
+      if (fs.statSync(resolvedPath).isDirectory()) {
+        entries = fs
+          .readdirSync(resolvedPath)
+          .map((e: string) => path.join(resolvedPath, e));
+      } else {
+        // A single zip or skill folder was passed directly
+        entries = [resolvedPath];
+      }
+
+      let installed = 0;
+      for (const entry of entries) {
+        try {
+          const stat = fs.statSync(entry);
+          let sourceDir: string | null = null;
+
+          if (stat.isFile() && entry.toLowerCase().endsWith(".zip")) {
+            // Extract zip to a temp dir
+            const AdmZip = require("adm-zip");
+            const extractTo = fs.mkdtempSync(
+              path.join(os.tmpdir(), "claude-skill-zip-"),
+            );
+            new AdmZip(entry).extractAllTo(extractTo, true);
+            sourceDir = this._findSkillDir(extractTo);
+          } else if (stat.isDirectory()) {
+            sourceDir = this._findSkillDir(entry);
+          }
+
+          if (!sourceDir) {
+            // Not a skill (no SKILL.md found); skip silently for non-zip noise
+            if (stat.isFile() && entry.toLowerCase().endsWith(".zip")) {
+              console.log(
+                chalk.yellow(
+                  `⚠ No SKILL.md found in ${path.basename(entry)}, skipping`,
+                ),
+              );
+            }
+            continue;
+          }
+
+          // Derive the skill folder name from SKILL.md frontmatter, else basename
+          const skillName = this._deriveSkillName(
+            sourceDir,
+            stat.isFile()
+              ? path.basename(entry, path.extname(entry))
+              : path.basename(entry),
+          );
+
+          // Copy into the staging skills root
+          const dest = path.join(skillsRoot, skillName);
+          this._copyDirRecursive(sourceDir, dest);
+          installed++;
+          console.log(chalk.blue(`  ✓ Skill staged: ${skillName}`));
+        } catch (e: any) {
+          console.log(
+            chalk.yellow(
+              `⚠ Failed to process skill ${path.basename(entry)}: ${e.message}`,
+            ),
+          );
+        }
+      }
+
+      if (installed === 0) {
+        console.log(chalk.yellow("⚠ No valid skills found to inject"));
+        return;
+      }
+
+      // Tar the staging dir (.claude/skills/...) and upload to /home/claude
+      const tarFile = path.join(os.tmpdir(), `claude-skills-${Date.now()}.tar`);
+      const tarFlags =
+        (process.platform as string) === "darwin"
+          ? "--no-xattrs --no-fflags"
+          : "";
+      execSync(`tar -cf "${tarFile}" ${tarFlags} -C "${staging}" .claude`, {
+        stdio: "pipe",
+      });
+
+      const stream = fs.createReadStream(tarFile);
+      await container.putArchive(stream, { path: "/home/claude" });
+      fs.unlinkSync(tarFile);
+
+      // Fix ownership/permissions
+      await container
+        .exec({
+          Cmd: [
+            "/bin/bash",
+            "-c",
+            "sudo chown -R claude:claude /home/claude/.claude/skills && sudo chmod -R 755 /home/claude/.claude/skills",
+          ],
+          AttachStdout: false,
+          AttachStderr: false,
+        })
+        .then((exec) => exec.start({}));
+
+      console.log(
+        chalk.green(`✓ Injected ${installed} skill(s) into the container`),
+      );
+    } catch (error) {
+      console.error(chalk.yellow("⚠ Failed to inject skills:"), error);
+      // Don't throw - skills are not critical for container operation
+    }
+  }
+
+  // Find the directory that contains a SKILL.md, searching the given root and
+  // one level of subdirectories (zips may nest the skill in a single folder).
+  private _findSkillDir(root: string): string | null {
+    const fs = require("fs");
+    const path = require("path");
+
+    if (fs.existsSync(path.join(root, "SKILL.md"))) {
+      return root;
+    }
+    const children = fs
+      .readdirSync(root)
+      .map((e: string) => path.join(root, e))
+      .filter((p: string) => {
+        try {
+          return fs.statSync(p).isDirectory();
+        } catch {
+          return false;
+        }
+      });
+    for (const child of children) {
+      if (fs.existsSync(path.join(child, "SKILL.md"))) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  // Read the `name:` field from SKILL.md frontmatter; fall back to the provided
+  // default. Normalized to a safe kebab-case directory name.
+  private _deriveSkillName(skillDir: string, fallback: string): string {
+    const fs = require("fs");
+    const path = require("path");
+    let name = fallback;
+    try {
+      const content = fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8");
+      const fm = content.match(/^---\s*([\s\S]*?)\s*---/);
+      if (fm) {
+        const nameLine = fm[1].match(/^\s*name\s*:\s*(.+?)\s*$/m);
+        if (nameLine) {
+          name = nameLine[1].replace(/^["']|["']$/g, "").trim();
+        }
+      }
+    } catch {
+      // ignore, use fallback
+    }
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || fallback;
+  }
+
+  // Recursively copy a directory (used to assemble the skills staging tree).
+  private _copyDirRecursive(src: string, dest: string): void {
+    const fs = require("fs");
+    const path = require("path");
+    fs.mkdirSync(dest, { recursive: true });
+    for (const entry of fs.readdirSync(src)) {
+      const s = path.join(src, entry);
+      const d = path.join(dest, entry);
+      const stat = fs.statSync(s);
+      if (stat.isDirectory()) {
+        this._copyDirRecursive(s, d);
+      } else if (stat.isFile()) {
+        fs.copyFileSync(s, d);
+      }
+    }
+  }
+
+  // Apply the in-container egress allowlist firewall (only for allowlist mode).
+  private async _setupFirewall(container: Docker.Container): Promise<void> {
+    if (this.config.networkMode !== "allowlist") {
+      return;
+    }
+
+    console.log(chalk.blue("• Configuring network allowlist firewall..."));
+
+    const extraDomains = (this.config.allowedDomains || []).join(",");
+    // Pass extra domains via env to the firewall script; run as root via sudo.
+    const cmd =
+      `sudo SANDBOX_ALLOWED_DOMAINS='${extraDomains}' ` +
+      `/usr/local/bin/init-firewall.sh`;
+
+    try {
+      const exec = await container.exec({
+        Cmd: ["/bin/bash", "-c", cmd],
+        AttachStdout: true,
+        AttachStderr: true,
+        User: "claude",
+      });
+      const stream = await exec.start({});
+
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (chunk: any) => {
+          process.stdout.write("  > " + chunk.toString());
+        });
+        stream.on("end", resolve);
+        stream.on("error", reject);
+      });
+
+      const info = await exec.inspect();
+      if (info.ExitCode !== 0) {
+        console.log(
+          chalk.yellow(
+            `⚠ Firewall setup exited with code ${info.ExitCode}. ` +
+              `The container may not have NET_ADMIN, or the script failed. ` +
+              `Network may NOT be restricted.`,
+          ),
+        );
+      } else {
+        console.log(chalk.green("✓ Network allowlist firewall active"));
+      }
+    } catch (error: any) {
+      console.log(
+        chalk.yellow(
+          `⚠ Failed to apply network firewall: ${error.message}. ` +
+            `Network may NOT be restricted.`,
+        ),
+      );
     }
   }
 
