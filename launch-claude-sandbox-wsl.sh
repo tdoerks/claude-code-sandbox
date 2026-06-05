@@ -1,7 +1,9 @@
 #!/bin/bash
 #
-# Claude Sandbox Launcher with Auto-Update
-# Automatically pulls the latest Docker image before launching
+# Claude Sandbox Launcher with Auto-Update — WSL2 edition
+#
+# For running inside a WSL2 Linux distro (e.g. Ubuntu) with Docker provided either
+# by Docker Desktop's WSL integration or by a native docker engine in the distro.
 #
 
 set -e
@@ -28,7 +30,7 @@ resolve_cli() {
 resolve_cli
 
 echo "════════════════════════════════════════════════════════════"
-echo "🤖 Claude Sandbox Launcher"
+echo "🤖 Claude Sandbox Launcher (WSL2)"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
@@ -53,28 +55,40 @@ cd "$TARGET_DIR"
 echo "   Using: $(pwd)"
 echo ""
 
-# Check if we're in a git repository
+# ── Git check ──────────────────────────────────────────────────
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
     echo "❌ Error: Not in a git repository"
     echo "   Please choose a directory that is a git repository."
     exit 1
 fi
 
-# Show current project
 PROJECT_NAME=$(basename "$(git rev-parse --show-toplevel)")
 BRANCH=$(git branch --show-current)
 echo "📁 Project: $PROJECT_NAME"
 echo "🌿 Branch: $BRANCH"
 echo ""
 
-# Check if Docker is running
+# ── Docker check (WSL2) ────────────────────────────────────────
+# In WSL2, Docker is usually provided by Docker Desktop's WSL integration. If that's
+# the case, the `docker` command works once Docker Desktop is running on Windows.
+# Some users instead run a native docker engine inside the distro — try to start it.
 if ! docker info > /dev/null 2>&1; then
-    echo "⚠️  Docker is not running. Starting Docker..."
-    sudo service docker start
+    echo "⚠️  Docker is not available in this WSL distro."
+    echo "    • If you use Docker Desktop: make sure it's running on Windows and that"
+    echo "      WSL integration is enabled for this distro"
+    echo "      (Docker Desktop → Settings → Resources → WSL integration)."
+    echo "    • If you use a native docker engine: attempting to start it..."
+    sudo service docker start 2>/dev/null || true
     sleep 2
+    if ! docker info > /dev/null 2>&1; then
+        echo "❌ Docker still not available. Start Docker and re-run."
+        exit 1
+    fi
 fi
+echo "✅ Docker is available."
+echo ""
 
-# Pull latest Docker image
+# ── Pull latest image ──────────────────────────────────────────
 echo "🔍 Checking for Docker image updates..."
 echo "   Image: ghcr.io/tdoerks/claude-code-sandbox:latest"
 echo ""
@@ -89,11 +103,9 @@ else
     echo "⚠️  Failed to pull latest image, using cached version"
 fi
 
-# Check Claude Code version in the image
 echo ""
 echo "ℹ️  Claude Code version in Docker image:"
 docker run --rm ghcr.io/tdoerks/claude-code-sandbox:latest claude --version 2>/dev/null || echo "   (version check skipped)"
-
 echo ""
 
 # ── Skills (optional) ──────────────────────────────────────────
@@ -129,9 +141,16 @@ echo "════════════════════════�
 echo "🚀 Launching Claude Sandbox..."
 echo "════════════════════════════════════════════════════════════"
 echo ""
-echo "   Browser will open automatically at http://localhost:3456"
+echo "   Web UI: http://localhost:3456"
+echo "   ⓘ  In WSL the browser may not open automatically — if it doesn't,"
+echo "      open http://localhost:3456 in your Windows browser."
 echo "   Press Ctrl+C to exit"
 echo ""
+
+# Try to open the Windows browser from WSL if a helper is available (best-effort).
+if command -v wslview > /dev/null 2>&1; then
+    (sleep 3 && wslview "http://localhost:3456" >/dev/null 2>&1) &
+fi
 
 # Launch claude-sandbox (repo-local build preferred)
 "${CLI_CMD[@]}" "${EXTRA_ARGS[@]}" "$@"

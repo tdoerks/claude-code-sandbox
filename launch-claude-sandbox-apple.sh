@@ -6,6 +6,27 @@
 
 set -e
 
+# Resolve the script's own directory BEFORE any cd, so we can find the local build.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Resolve which claude-sandbox CLI to run. Prefer the repo's local build (it has the
+# latest features like --skills / --network); the globally-installed npm package is
+# often stale. Sets the CLI_CMD array.
+resolve_cli() {
+    if [ -f "$SCRIPT_DIR/dist/cli.js" ]; then
+        CLI_CMD=(node "$SCRIPT_DIR/dist/cli.js")
+    elif [ -d "$SCRIPT_DIR/node_modules" ] && [ -f "$SCRIPT_DIR/package.json" ]; then
+        echo "🔨 Building claude-sandbox from source (first run)..."
+        (cd "$SCRIPT_DIR" && npm run build)
+        CLI_CMD=(node "$SCRIPT_DIR/dist/cli.js")
+    else
+        echo "⚠️  Using globally installed 'claude-sandbox' (may be outdated)."
+        echo "    For the latest features run: (cd \"$SCRIPT_DIR\" && npm install && npm run build)"
+        CLI_CMD=(claude-sandbox)
+    fi
+}
+resolve_cli
+
 echo "════════════════════════════════════════════════════════════"
 echo "🤖 Claude Sandbox Launcher"
 echo "════════════════════════════════════════════════════════════"
@@ -156,4 +177,5 @@ echo ""
 
 # DOCKER_DEFAULT_PLATFORM is already exported above, so claude-sandbox
 # will inherit it and use amd64 when it makes its own Docker calls
-claude-sandbox "${EXTRA_ARGS[@]}" "$@"
+# (repo-local build preferred)
+"${CLI_CMD[@]}" "${EXTRA_ARGS[@]}" "$@"

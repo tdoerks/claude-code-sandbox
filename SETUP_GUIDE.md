@@ -233,12 +233,31 @@ they will not show up as git changes. They exist only for that container session
 Claude Code auto-discovers skills from `~/.claude/skills/`, so injected skills are
 available immediately in the session.
 
+## The launchers run the repo's local build
+
+> **Important:** The launch scripts run **this repository's own build** of
+> `claude-sandbox` (`dist/cli.js`), not whatever `claude-sandbox` is installed
+> globally. The globally-installed npm package can be older and will reject the new
+> flags (`error: unknown option '--skills'`).
+>
+> So, **once**, in the cloned repo:
+>
+> ```bash
+> cd ~/Github/claude-code-sandbox
+> npm install
+> npm run build
+> ```
+>
+> After that, just run a launcher — it picks up `dist/cli.js` automatically (and will
+> auto-build on first run if `node_modules` is present). Re-run `npm run build` after
+> pulling new changes.
+
 ## Windows (PowerShell + Docker Desktop)
 
 A native Windows launcher is provided for use with Docker Desktop (no WSL required):
 
 ```powershell
-# Requires Docker Desktop running and `claude-sandbox` installed on the Windows host
+# Requires Docker Desktop running + Node.js; runs this repo's local build
 pwsh .\launch-claude-sandbox.ps1
 ```
 
@@ -246,8 +265,24 @@ It prompts for the same things as the bash launcher (directory, skills, network)
 pulls/re-tags the latest image. You can also pass the project directory as the first
 argument: `pwsh .\launch-claude-sandbox.ps1 C:\Users\you\Github\my-project`.
 
-> Prefer WSL? The bash launcher (`launch-claude-sandbox.sh`) still works inside
-> Ubuntu/WSL exactly as documented above.
+## WSL2 (Ubuntu inside Windows)
+
+If you run inside a WSL2 distro, use the dedicated WSL launcher:
+
+```bash
+~/Github/claude-code-sandbox/launch-claude-sandbox-wsl.sh
+```
+
+It works with Docker provided by **Docker Desktop's WSL integration** (recommended —
+enable it under Docker Desktop → Settings → Resources → WSL integration) or by a
+**native docker engine** installed in the distro (it will try `sudo service docker
+start` for you). It prompts for directory, skills, and network just like the others.
+
+> In WSL the browser often won't open automatically. If it doesn't, open
+> **http://localhost:3456** in your Windows browser.
+>
+> The plain `launch-claude-sandbox.sh` also works in WSL, but the `-wsl` variant has
+> friendlier Docker/browser handling for WSL2.
 
 ## Restricting Network Access
 
@@ -534,8 +569,11 @@ The launch script auto-updates the Docker image every time you run it!
 - Inject Claude skills (`.zip`) at launch via `--skills` or the launcher prompt
 - Copied into the container only — never added to your repo
 
-🆕 **Native Windows Launcher**
+🆕 **Native Windows + WSL2 Launchers**
 - `launch-claude-sandbox.ps1` for PowerShell + Docker Desktop (no WSL needed)
+- `launch-claude-sandbox-wsl.sh` tuned for WSL2 (Docker Desktop integration or native
+  engine; browser-open hints)
+- All launchers now run the repo's local build, so new flags always work
 
 🆕 **Network Allowlist**
 - `--network allowlist` restricts the sandbox to the Anthropic API + GitHub

@@ -7,13 +7,31 @@
 #   - pulls + re-tags the latest image, then launches claude-sandbox
 #
 # Requirements:
-#   - Docker Desktop installed
-#   - `claude-sandbox` installed on the Windows host (npm i -g, or use the repo)
+#   - Docker Desktop installed and running
+#   - Node.js installed (the launcher runs the repo's local build of claude-sandbox)
+#   - Run `npm install && npm run build` in this repo once to get the latest features
 #
 # Usage:
 #   pwsh ./launch-claude-sandbox.ps1 [project-directory] [-- extra claude-sandbox args]
 
 $ErrorActionPreference = "Stop"
+
+# Resolve which claude-sandbox CLI to run. Prefer the repo's local build (latest
+# features); fall back to a globally installed command with a warning.
+$ScriptDir = $PSScriptRoot
+$LocalCli = Join-Path $ScriptDir "dist\cli.js"
+$CliExe = $null
+$CliPrefix = @()
+if (Test-Path $LocalCli) {
+    $CliExe = "node"; $CliPrefix = @($LocalCli)
+} elseif ((Test-Path (Join-Path $ScriptDir "node_modules")) -and (Test-Path (Join-Path $ScriptDir "package.json"))) {
+    Write-Host "Building claude-sandbox from source (first run)..."
+    Push-Location $ScriptDir; npm run build; Pop-Location
+    $CliExe = "node"; $CliPrefix = @($LocalCli)
+} else {
+    Write-Host "Using globally installed 'claude-sandbox' (may be outdated). Run 'npm install && npm run build' in $ScriptDir for the latest features." -ForegroundColor Yellow
+    $CliExe = "claude-sandbox"; $CliPrefix = @()
+}
 
 Write-Host "============================================================"
 Write-Host "Claude Sandbox Launcher (Windows)"
@@ -125,5 +143,5 @@ Write-Host "   Browser will open automatically at http://localhost:3456"
 Write-Host "   Press Ctrl+C to exit"
 Write-Host ""
 
-# Launch claude-sandbox with chosen options plus any passthrough args
-claude-sandbox @ExtraArgs @args
+# Launch claude-sandbox (repo-local build preferred) with chosen options + passthrough
+& $CliExe @CliPrefix @ExtraArgs @args
